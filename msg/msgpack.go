@@ -2,11 +2,8 @@ package main
 
 import (
 	"fmt"
-	"bytes"
-	// "strings"
 	"time"
-	"io/ioutil"
-	"net/http"
+	"net"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -19,36 +16,24 @@ type test struct{
 }
 
 func main(){
-	var buf bytes.Buffer
-	enc := msgpack.NewEncoder(&buf)
 	testkv := make(map[string]string)
 	testkv["foo"] = "bar"
-	err := enc.Encode(&test{Name: "foo", Ts: time.Now().UnixNano(), Attrs: testkv})
-	if err != nil {
-		panic(err)					    
-	}
-	// Decode the messagepack array into slice of interface
-	dec := msgpack.NewDecoder(&buf)
-	v, err := dec.DecodeSlice()
-	if err != nil {
-		    panic(err)
-				
-	}
-	fmt.Printf("%T, %v\n\n", v, v)
-	// fmt.Printf("%T, %v", buf, buf)
-	url := "http://localhost:24224/"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(v))
+	t, err := msgpack.Marshal(&test{Name: "foo", Ts: time.Now().UnixNano(), Attrs: testkv})
 	check(err)
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	fmt.Println(t)
+
+	url := "localhost:24224"
+	tcpAddr, err := net.ResolveTCPAddr("tcp", url)
 	check(err)
-	defer resp.Body.Close()
-	respBody, err := ioutil.ReadAll(resp.Body)
-	fmt.Println("Response body: \n", respBody)
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	check(err)
+
+	_, err = conn.Write(t)
+	check(err)
 }
 
 func check(err error){
 	if err!=nil{
-		panic(err)
+		fmt.Println(err)
 	}
 }
