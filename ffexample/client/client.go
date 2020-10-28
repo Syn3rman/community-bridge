@@ -12,8 +12,7 @@ import (
 	"go.opentelemetry.io/otel/label"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/api/global"
-	// ff "github.com/Syn3rman/opentelemetry-go-contrib/exporters/trace/fluentforward"
-	ff "example.com/fluentforward"
+	ff "fluentforward"
 )
 
 func initTracer(url string){
@@ -50,5 +49,5 @@ func main(){
 		fmt.Fprintf(os.Stderr, "Failed to read HTTP response body: %v\n", err)
 	}
 
-	fmt.Printf("Response received (HTTP status code %d): %s\n\n\n", res.StatusCode, body)
+	fmt.Printf("Response received (HTTP status code %d): %s\n", res.StatusCode, body)
 }
