@@ -9,9 +9,9 @@ import (
 )
 
 type test struct{
-	_msgpack struct{} `msgpack:",asArray"`
-	Name string `msgpack:"name"`
-	Ts int64 `msgpack:"ts"`
+	_msgpack struct{}       `msgpack:",asArray"`
+	Name string             `msgpack:"name"`
+	Ts int64                `msgpack:"ts"`
 	Attrs map[string]string `msgpack:"attrs"`
 }
 
@@ -21,6 +21,8 @@ func main(){
 	t, err := msgpack.Marshal(&test{Name: "foo", Ts: time.Now().UnixNano(), Attrs: testkv})
 	check(err)
 	fmt.Println(t)
+
+	fmt.Println(time.Now().UnixNano())
 
 	url := "localhost:24224"
 	tcpAddr, err := net.ResolveTCPAddr("tcp", url)
