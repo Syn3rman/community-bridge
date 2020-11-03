@@ -6,19 +6,29 @@ import (
 	"context"
 	"io/ioutil"
 	"os"
+	"log"
 
 		"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	otelhttptrace "go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
 	"go.opentelemetry.io/otel/label"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/api/global"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	ff "fluentforward"
 )
 
+var logger = log.New(os.Stderr, "fluent-test", log.Ldate|log.Ltime|log.Llongfile)
+
 func initTracer(url string){
-	err := ff.InstallNewPipeline(url, "ff client")
+	err := ff.InstallNewPipeline(
+		url,
+		"ff client",
+		ff.WithLogger(logger),
+		ff.WithSDK(&sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
+	)
+
 	if err!=nil{
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 }
 
@@ -34,20 +44,19 @@ func main(){
 	ctx, span := tr.Start(ctx, "fib")
 	defer span.End()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil{
-		fmt.Println(err)
-	}
+	check(err)
 	_, req = otelhttptrace.W3C(ctx, req)
 	fmt.Println("Sending request: ")
 	res, err := client.Do(req)
-	if err!=nil{
-		fmt.Println(err)
-	}
+	check(err)
 	defer res.Body.Close()
 	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to read HTTP response body: %v\n", err)
-	}
-
+	check(err)
 	fmt.Printf("Response received (HTTP status code %d): %s\n", res.StatusCode, body)
+}
+
+func check(err error) {
+	if err!=nil{
+		log.Fatal(err)
+	}
 }

@@ -1,8 +1,10 @@
 package fluentforward
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"log"
 	"time"
 	"context"
 
@@ -41,10 +43,30 @@ type Exporter struct{
 	url string
 	serviceName string
 	client *net.TCPConn
+	o options
 }
 
-func InstallNewPipeline(ffurl, serviceName string) error{
-	tp,err := NewExportPipeline(ffurl, serviceName)
+type Option func(*options)
+
+type options struct{
+	config *sdktrace.Config
+	logger *log.Logger
+}
+
+func WithLogger(logger *log.Logger) Option{
+	return func(o *options)	{
+		o.logger = logger
+	}
+}
+
+func WithSDK(config *sdktrace.Config) Option{
+	return func(o *options){
+		o.config = config
+	}
+}
+
+func InstallNewPipeline(ffurl, serviceName string, opts ...Option) error{
+	tp,err := NewExportPipeline(ffurl, serviceName, opts...)
 	if err!=nil{
 		fmt.Println(err)
 	}
@@ -52,8 +74,8 @@ func InstallNewPipeline(ffurl, serviceName string) error{
 	return nil
 }
 
-func NewExportPipeline(ffurl, serviceName string) (*sdktrace.TracerProvider, error){
-	exp, err := NewExporter(ffurl, serviceName)
+func NewExportPipeline(ffurl, serviceName string, opts ...Option) (*sdktrace.TracerProvider, error){
+	exp, err := NewExporter(ffurl, serviceName, opts...)
 	if err!=nil{
 		fmt.Println(err)
 	}
@@ -61,16 +83,25 @@ func NewExportPipeline(ffurl, serviceName string) (*sdktrace.TracerProvider, err
 	return tp, nil
 }
 
-func NewExporter(ffurl, serviceName string) (*Exporter, error){
+func NewExporter(ffurl, serviceName string, opts ...Option) (*Exporter, error){
+	o := options{}
+	for _, opt := range opts{
+		opt(&o)
+	}
 
+	if ffurl == ""{
+		return nil, errors.New("Fluent instance url cannot be empty")
+	}
 	return &Exporter{
 		url: ffurl,
 		serviceName: serviceName,
+		o: o,
 	}, nil
 
 }
 
 func (e *Exporter) ExportSpans(ctx context.Context, sds []*export.SpanData) error{
+
 	ts := time.Now().Unix()
 	fmt.Println("Timestamp: ", ts)
 
