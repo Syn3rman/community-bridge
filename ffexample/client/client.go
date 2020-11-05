@@ -8,6 +8,7 @@ import (
 	"os"
 	"log"
 
+	"go.opentelemetry.io/otel/api/trace"
 		"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	otelhttptrace "go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
 	"go.opentelemetry.io/otel/label"
@@ -35,14 +36,23 @@ func initTracer(url string){
 func main(){
 	initTracer("http://localhost:5050/")
 	tr := global.Tracer("ffexample/client")
-	url := "http://localhost:5050/fib"
-	client := http.Client{
-		Transport: otelhttp.NewTransport(http.DefaultTransport),
-	}
 	ctx := otel.ContextWithBaggageValues(context.Background(),
 		label.String("n", "12"))
 	ctx, span := tr.Start(ctx, "fib")
 	defer span.End()
+	test1(ctx, tr) 
+}
+
+func test1(ctx context.Context, tr trace.Tracer){
+	
+	url := "http://localhost:5050/fib"
+	client := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
+
+	ctx, childSpan := tr.Start(ctx, "inside test1")
+	defer childSpan.End()
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	check(err)
 	_, req = otelhttptrace.W3C(ctx, req)
