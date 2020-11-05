@@ -1,19 +1,18 @@
 package fluentforward
 
 import (
-	"errors"
-	"fmt"
-	"net"
-	"log"
-	"time"
 	"context"
+	"errors"
+	"log"
+	"net"
+	"time"
 
-	"github.com/vmihailenco/msgpack/v5"
-	"go.opentelemetry.io/otel/label"
 	apitrace "go.opentelemetry.io/otel/api/trace"
 	export "go.opentelemetry.io/otel/sdk/export/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/api/global"
+	"go.opentelemetry.io/otel/label"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 type ffSpan struct{
@@ -29,14 +28,30 @@ type spanData struct{
 	SpanKind apitrace.SpanKind      `msgpack:"spanKind"`
 	Name string                     `msgpack:"name"`
 	StartTime int64                 `msgpack:"startTime"`
+	StatusMessage string            `msgpack:"statusMessage"`
 	EndTime int64                   `msgpack:"endTime"`
 	Attrs map[label.Key]interface{} `msgpack:"attrs"`
+	DroppedAttributeCount int       `msgpack:"droppedAttributesCount"`
+	DroppedMessageEventCount int    `msgpack:"droppedMessageEventCount"`
+	DroppedLinkCount int            `msgpack:"droppedLinkCount"`
+	StatusCode string               `msgpack:"statusCode"`
+	Links []link                    `msgpack:"links"`
 }
 
 type spanContext struct{
 	TraceId string  `msgpack:"traceId"`
 	SpanId string   `msgpack:"spanId"`
 	TraceFlags byte `msgpack:"TraceFlags"`
+}
+
+type link struct{
+	SpanContext spanContext         `msgpack:"spanContext"`
+	Attrs map[label.Key]interface{} `msgpack:"attrs"`
+}
+
+type event struct{
+	Attrs map[label.Key]interface{} `msgpack:"attrs"`
+	DroppedAttributeCount int       `msgpack:"droppedAttributesCount"`
 }
 
 type Exporter struct{
@@ -68,7 +83,7 @@ func WithSDK(config *sdktrace.Config) Option{
 func InstallNewPipeline(ffurl, serviceName string, opts ...Option) error{
 	tp,err := NewExportPipeline(ffurl, serviceName, opts...)
 	if err!=nil{
-		fmt.Println(err)
+		return err
 	}
 	global.SetTracerProvider(tp)
 	return nil
@@ -77,7 +92,7 @@ func InstallNewPipeline(ffurl, serviceName string, opts ...Option) error{
 func NewExportPipeline(ffurl, serviceName string, opts ...Option) (*sdktrace.TracerProvider, error){
 	exp, err := NewExporter(ffurl, serviceName, opts...)
 	if err!=nil{
-		fmt.Println(err)
+		return nil, err
 	}
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp))
 	return tp, nil
@@ -92,6 +107,7 @@ func NewExporter(ffurl, serviceName string, opts ...Option) (*Exporter, error){
 	if ffurl == ""{
 		return nil, errors.New("Fluent instance url cannot be empty")
 	}
+
 	return &Exporter{
 		url: ffurl,
 		serviceName: serviceName,
@@ -103,7 +119,6 @@ func NewExporter(ffurl, serviceName string, opts ...Option) (*Exporter, error){
 func (e *Exporter) ExportSpans(ctx context.Context, sds []*export.SpanData) error{
 
 	ts := time.Now().Unix()
-	fmt.Println("Timestamp: ", ts)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", e.url)
 	check(err)
@@ -125,14 +140,17 @@ func (e *Exporter) ExportSpans(ctx context.Context, sds []*export.SpanData) erro
 		spans.ParentSpanId = span.ParentSpanID.String()
 		spans.SpanKind = span.SpanKind
 		spans.Name = span.Name
+		spans.StatusMessage = span.StatusMessage
+		spans.StatusCode = span.StatusCode.String()
 		spans.StartTime = span.StartTime.UnixNano()
 		spans.EndTime = span.EndTime.UnixNano()
+		spans.DroppedAttributeCount = span.DroppedAttributeCount
+		spans.DroppedLinkCount = span.DroppedLinkCount
+		spans.DroppedMessageEventCount = span.DroppedMessageEventCount
 		
-		testkv := make(map[label.Key]interface{})
-		for _,v := range span.Attributes{
-			testkv[v.Key] = v.Value.AsInterface()
-		}
-		spans.Attrs = testkv
+		spans.Attrs = attributesToMap(span.Attributes)
+	
+		spans.Links = linksToSlice(span.Links)
 
 		ffspan.SpanData = spans
 
@@ -148,6 +166,30 @@ func (e *Exporter) ExportSpans(ctx context.Context, sds []*export.SpanData) erro
 func (e *Exporter) Shutdown(ctx context.Context) error{
 	e.client.Close()
 	return nil
+}
+
+func attributesToMap(attributes []label.KeyValue) map[label.Key]interface{}{
+		attrs := make(map[label.Key]interface{})
+		for _,v := range attributes{
+			attrs[v.Key] = v.Value.AsInterface()
+		}
+		return attrs
+}
+
+func linksToSlice(links []apitrace.Link) []link{
+	var l []link
+	for _, v := range links{
+		temp := link{
+			SpanContext: spanContext{
+				TraceId: v.SpanContext.TraceID.String(),
+				SpanId: v.SpanContext.SpanID.String(),
+				TraceFlags: v.SpanContext.TraceFlags,
+			},
+			Attrs: attributesToMap(v.Attributes),
+		}
+		l = append(l, temp)	
+	}
+	return l
 }
 
 func check(err error){
