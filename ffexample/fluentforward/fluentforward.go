@@ -7,136 +7,166 @@ import (
 	"net"
 	"time"
 
+	"github.com/vmihailenco/msgpack/v5"
+	"go.opentelemetry.io/otel/api/global"
 	apitrace "go.opentelemetry.io/otel/api/trace"
+	"go.opentelemetry.io/otel/label"
 	export "go.opentelemetry.io/otel/sdk/export/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/label"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
-type ffSpan struct{
-	_msgpack struct{}            `msgpack:",asArray"`
-	Tag string                   `msgpack:"tag"`
-	Ts int64                     `msgpack:"ts"`
-	SpanData spanData						 `msgpack:"spanData"`
+// ffSpan is serialized as a messagepack array of the form:
+//
+// [
+// 	"tag",
+// 	"timestamp",
+// 	{"key": "value", ...}
+// ]
+
+type ffSpan struct {
+	_msgpack struct{} `msgpack:",asArray"`
+	Tag      string   `msgpack:"tag"`
+	Ts       int64    `msgpack:"ts"`
+	SpanData spanData `msgpack:"spanData"`
 }
 
-type spanData struct{
-	SpanContext spanContext         `msgpack:"spanContext"`
-	ParentSpanId string             `msgpack:"parentSpanId"`
-	SpanKind apitrace.SpanKind      `msgpack:"spanKind"`
-	Name string                     `msgpack:"name"`
-	StartTime int64                 `msgpack:"startTime"`
-	StatusMessage string            `msgpack:"statusMessage"`
-	EndTime int64                   `msgpack:"endTime"`
-	Attrs map[label.Key]interface{} `msgpack:"attrs"`
-	DroppedAttributeCount int       `msgpack:"droppedAttributesCount"`
-	DroppedMessageEventCount int    `msgpack:"droppedMessageEventCount"`
-	DroppedLinkCount int            `msgpack:"droppedLinkCount"`
-	StatusCode string               `msgpack:"statusCode"`
-	Links []link                    `msgpack:"links"`
+// Refer https://github.com/open-telemetry/opentelemetry-proto/blob/master/opentelemetry/proto/trace/v1/trace.proto
+// for a verbose description of the fields
+
+// SpanData contains all the properties of the span as key value pairs
+type spanData struct {
+	TraceId                       string                    `msgpack:"traceId"` // A unique identifier for the trace
+	SpanId                        string                    `msgpack:"spanId"`  // A unique identifier for a span within a trace
+	ParentSpanId                  string                    `msgpack:"parentSpanId"`
+	Name                          string                    `msgpack:"name"`                   // A description of the spans operation
+	StartTime                     int64                     `msgpack:"startTime"`              // Start time of the span
+	EndTime                       int64                     `msgpack:"endTime"`                // End time of the span
+	Attrs                         map[label.Key]interface{} `msgpack:"attrs"`                  // A collection of key-value pairs
+	DroppedAttributeCount         int                       `msgpack:"droppedAttributesCount"` // Number of attributes that were dropped due to reasons like too many attributes
+	Links                         []link                    `msgpack:"links"`
+	DroppedLinkCount              int                       `msgpack:"droppedLinkCount"`
+	StatusCode                    string                    `msgpack:"statusCode"` // Status code of the span. Defaults to unset
+	MessageEvents                 []event                   `msgpack:"messageEvents"`
+	DroppedMessageEventCount      int                       `msgpack:"droppedMessageEventCount"`
+	TraceState                    string                    `msgpack:"traceState"`                 // Details about the trace
+	SpanKind                      apitrace.SpanKind         `msgpack:"spanKind"`                   // Type of span
+	StatusMessage                 string                    `msgpack:"statusMessage"`              // Human readable error message
+	InstrumentationLibraryName    string                    `msgpack:"instrumentationLibraryName"` // Instrumentation library used to provide instrumentation
+	InstrumentationLibraryVersion string                    `msgpack:"instrumentationLibraryVersion"`
+	Resource                      string                    `msgpack:"resource"` // Contains attributes representing an entity that produced this span
 }
 
-type spanContext struct{
-	TraceId string  `msgpack:"traceId"`
-	SpanId string   `msgpack:"spanId"`
-	TraceFlags byte `msgpack:"TraceFlags"`
+// An event is a time-stamped annotation of the span that has user supplied text description and key-value pairs
+type event struct {
+	Ts    int64                     `msgpack:"ts"`    // The time at which the event occured
+	Name  string                    `msgpack:"name"`  // Event name
+	Attrs map[label.Key]interface{} `msgpack:"attrs"` // collection of key-value pairs on the event
 }
 
-type link struct{
-	SpanContext spanContext         `msgpack:"spanContext"`
-	Attrs map[label.Key]interface{} `msgpack:"attrs"`
+// A link contains references from this span to a span in the same or different trace
+type link struct {
+	TraceId string                    `msgpack:"traceId"`
+	SpanId  string                    `msgpack:"spanId"`
+	Attrs   map[label.Key]interface{} `msgpack:"attrs"`
 }
 
-type event struct{
-	Attrs map[label.Key]interface{} `msgpack:"attrs"`
-	DroppedAttributeCount int       `msgpack:"droppedAttributesCount"`
-}
-
-type Exporter struct{
-	url string
+// Exporter implements the SpanExporter interface that allows us to export span data
+type Exporter struct {
+	url         string
 	serviceName string
-	client *net.TCPConn
-	o options
+	client      *net.TCPConn
+	o           options
 }
 
+// Option defines a function that configures the exporter.
 type Option func(*options)
 
-type options struct{
+// Options contains configuration for the exporter.
+type options struct {
 	config *sdktrace.Config
 	logger *log.Logger
 }
 
-func WithLogger(logger *log.Logger) Option{
-	return func(o *options)	{
+// WithLogger configures the exporter to use the passed logger.
+func WithLogger(logger *log.Logger) Option {
+	return func(o *options) {
 		o.logger = logger
 	}
 }
 
-func WithSDK(config *sdktrace.Config) Option{
-	return func(o *options){
+// WithSDK sets the SDK config for the exporter pipeline.
+func WithSDK(config *sdktrace.Config) Option {
+	return func(o *options) {
 		o.config = config
 	}
 }
 
-func InstallNewPipeline(ffurl, serviceName string, opts ...Option) error{
-	tp,err := NewExportPipeline(ffurl, serviceName, opts...)
-	if err!=nil{
+// InstallNewPipeline instantiates a NewExportPipeline with the
+// recommended configuration and registers it globally.
+func InstallNewPipeline(ffurl, serviceName string, opts ...Option) error {
+	tp, err := NewExportPipeline(ffurl, serviceName, opts...)
+	if err != nil {
 		return err
 	}
 	global.SetTracerProvider(tp)
 	return nil
 }
 
-func NewExportPipeline(ffurl, serviceName string, opts ...Option) (*sdktrace.TracerProvider, error){
+// NewExportPipeline sets up a complete export pipeline
+// with the recommended setup for trace provider
+func NewExportPipeline(ffurl, serviceName string, opts ...Option) (*sdktrace.TracerProvider, error) {
 	exp, err := NewExporter(ffurl, serviceName, opts...)
-	if err!=nil{
+	if err != nil {
 		return nil, err
 	}
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp))
+	if exp.o.config != nil {
+		tp.ApplyConfig(*exp.o.config)
+	}
 	return tp, nil
 }
 
-func NewExporter(ffurl, serviceName string, opts ...Option) (*Exporter, error){
+// NewRawExporter creates a new exporter
+func NewExporter(ffurl, serviceName string, opts ...Option) (*Exporter, error) {
 	o := options{}
-	for _, opt := range opts{
+	for _, opt := range opts {
 		opt(&o)
 	}
 
-	if ffurl == ""{
-		return nil, errors.New("Fluent instance url cannot be empty")
+	if ffurl == "" {
+		return nil, errors.New("fluent instance url cannot be empty")
+	}
+
+	tcpAddr, err := net.ResolveTCPAddr("tcp", ffurl)
+	if err != nil {
+		return err
+	}
+	client, err := net.DialTCP("tcp", nil, tcpAddr)
+	if err != nil {
+		return err
 	}
 
 	return &Exporter{
-		url: ffurl,
+		url:         ffurl,
 		serviceName: serviceName,
-		o: o,
+		client:      client,
+		o:           o,
 	}, nil
 
 }
 
-func (e *Exporter) ExportSpans(ctx context.Context, sds []*export.SpanData) error{
+// Export spans to fluent instance
+func (e *Exporter) ExportSpans(ctx context.Context, sds []*export.SpanData) error {
 
-	ts := time.Now().Unix()
-
-	tcpAddr, err := net.ResolveTCPAddr("tcp", e.url)
-	check(err)
-	client, err := net.DialTCP("tcp", nil, tcpAddr)
-	e.client = client
-	check(err)
-
-	for _, span := range sds{
+	for _, span := range sds {
 		ffspan := ffSpan{
 			Tag: "span.test",
-			Ts: ts,
+			Ts:  span.EndTime.UnixNano(),
 		}
+
 		spans := spanData{}
-		spans.SpanContext = spanContext{
-			TraceId: span.SpanContext.TraceID.String(),
-			SpanId: span.SpanContext.SpanID.String(),
-			TraceFlags: span.SpanContext.TraceFlags,
-		}
+		spans.TraceId = span.SpanContext.TraceID.String()
+		spans.SpanId = span.SpanContext.SpanID.String()
 		spans.ParentSpanId = span.ParentSpanID.String()
 		spans.SpanKind = span.SpanKind
 		spans.Name = span.Name
@@ -144,56 +174,70 @@ func (e *Exporter) ExportSpans(ctx context.Context, sds []*export.SpanData) erro
 		spans.StatusCode = span.StatusCode.String()
 		spans.StartTime = span.StartTime.UnixNano()
 		spans.EndTime = span.EndTime.UnixNano()
-		spans.DroppedAttributeCount = span.DroppedAttributeCount
-		spans.DroppedLinkCount = span.DroppedLinkCount
+
+		spans.MessageEvents = eventsToSlice(span.MessageEvents)
 		spans.DroppedMessageEventCount = span.DroppedMessageEventCount
-		
+
 		spans.Attrs = attributesToMap(span.Attributes)
-	
+		spans.DroppedAttributeCount = span.DroppedAttributeCount
+
 		spans.Links = linksToSlice(span.Links)
+		spans.DroppedLinkCount = span.DroppedLinkCount
 
 		ffspan.SpanData = spans
 
 		t, err := msgpack.Marshal(&ffspan)
-		check(err)
+		if err != nil {
+			return err
+		}
 
 		_, err = e.client.Write(t)
-		check(err)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (e *Exporter) Shutdown(ctx context.Context) error{
+// Stop the exporter
+func (e *Exporter) Shutdown(ctx context.Context) error {
 	e.client.Close()
 	return nil
 }
 
-func attributesToMap(attributes []label.KeyValue) map[label.Key]interface{}{
-		attrs := make(map[label.Key]interface{})
-		for _,v := range attributes{
-			attrs[v.Key] = v.Value.AsInterface()
-		}
-		return attrs
+// attributesToMap converts attributes from a slice of key-values to a map for exporting
+func attributesToMap(attributes []label.KeyValue) map[label.Key]interface{} {
+	attrs := make(map[label.Key]interface{})
+	for _, v := range attributes {
+		attrs[v.Key] = v.Value.AsInterface()
+	}
+	return attrs
 }
 
-func linksToSlice(links []apitrace.Link) []link{
+// linksToSlice converts links from the format []trace.link to []link for exporting
+func linksToSlice(links []apitrace.Link) []link {
 	var l []link
-	for _, v := range links{
+	for _, v := range links {
 		temp := link{
-			SpanContext: spanContext{
-				TraceId: v.SpanContext.TraceID.String(),
-				SpanId: v.SpanContext.SpanID.String(),
-				TraceFlags: v.SpanContext.TraceFlags,
-			},
-			Attrs: attributesToMap(v.Attributes),
+			TraceId: v.SpanContext.TraceID.String(),
+			SpanId:  v.SpanContext.SpanID.String(),
+			Attrs:   attributesToMap(v.Attributes),
 		}
-		l = append(l, temp)	
+		l = append(l, temp)
 	}
 	return l
 }
 
-func check(err error){
-	if err!=nil{
-		panic(err)
+// eventsToSlice converts events from the format []trace.event to []event for exporting
+func eventsToSlice(events []export.Event) []event {
+	var e []event
+	for _, v := range events {
+		temp := event{
+			Ts:    v.Time.UnixNano(),
+			Name:  v.Name,
+			Attrs: attributesToMap(v.Attributes),
+		}
+		e = append(e, temp)
 	}
+	return e
 }

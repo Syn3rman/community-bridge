@@ -1,50 +1,34 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
 	"context"
+	"fmt"
 	"io/ioutil"
-	"os"
 	"log"
+	"net/http"
+	"os"
 
-	"go.opentelemetry.io/otel/api/trace"
-		"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	otelhttptrace "go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
-	"go.opentelemetry.io/otel/label"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/api/global"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	ff "fluentforward"
+	"go.opentelemetry.io/otel/api/trace"
+	"go.opentelemetry.io/otel/label"
 )
 
 var logger = log.New(os.Stderr, "fluent-test", log.Ldate|log.Ltime|log.Llongfile)
 
-func initTracer(url string){
-	err := ff.InstallNewPipeline(
-		url,
-		"ff client",
-		ff.WithLogger(logger),
-		ff.WithSDK(&sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
-	)
-
-	if err!=nil{
-		log.Fatal(err)
-	}
-}
-
-func main(){
-	initTracer("http://localhost:5050/")
+func main() {
 	tr := global.Tracer("ffexample/client")
 	ctx := otel.ContextWithBaggageValues(context.Background(),
-		label.String("n", "12"))
+		label.String("foo", "bar"))
 	ctx, span := tr.Start(ctx, "fib")
 	defer span.End()
-	test1(ctx, tr) 
+	test1(ctx, tr)
 }
 
-func test1(ctx context.Context, tr trace.Tracer){
-	
+func test1(ctx context.Context, tr trace.Tracer) {
+
 	url := "http://localhost:5050/fib"
 	client := http.Client{
 		Transport: otelhttp.NewTransport(http.DefaultTransport),
@@ -66,7 +50,7 @@ func test1(ctx context.Context, tr trace.Tracer){
 }
 
 func check(err error) {
-	if err!=nil{
+	if err != nil {
 		log.Fatal(err)
 	}
 }
