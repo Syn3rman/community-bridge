@@ -25,13 +25,21 @@ func main(){
 	fmt.Println(time.Now().UnixNano())
 
 	url := "localhost:24224"
-	tcpAddr, err := net.ResolveTCPAddr("tcp", url)
-	check(err)
-	conn, err := net.DialTCP("tcp", nil, tcpAddr)
-	check(err)
+	// tcpAddr, err := net.ResolveTCPAddr("tcp", url)
+	// check(err)
+	// conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	// check(err)
 
-	_, err = conn.Write(t)
+	udpconn, _ := net.Dial("udp", url)
+	data, _ := msgpack.Marshal([]byte{0x00})
+	fmt.Println("data: ", data)
+	res, err := udpconn.Write(data)
 	check(err)
+	fmt.Println(res)
+
+	// res, err := conn.Write(data)
+	// check(err)
+	// fmt.Println(res)
 }
 
 func check(err error){

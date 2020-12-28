@@ -1,17 +1,15 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
-	ff "fluentforward"
-	otelhttptrace "go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
+	ff "github.com/Syn3rman/fluentforward"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/httptrace"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/trace"
-	"go.opentelemetry.io/otel/label"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func initTracer(url string) {
@@ -24,27 +22,35 @@ func initTracer(url string) {
 func main() {
 	initTracer("localhost:24224")
 
-	tr := global.Tracer("ffexample/server")
+	tr := otel.Tracer("ffexample/server")
 
-	fib := func(w http.ResponseWriter, req *http.Request) {
-		n := req.FormValue("n")
-		attrs, _, spanCtx := otelhttptrace.Extract(req.Context(), req)
-
-		_, span := tr.Start(
-			trace.ContextWithRemoteSpanContext(req.Context(), spanCtx),
-			"hello",
-			trace.WithAttributes(attrs...),
-			trace.WithLinks(trace.Link{SpanContext: spanCtx, Attributes: attrs}),
-		)
-		ctx := context.Background()
-		ctx = otel.ContextWithBaggageValues(ctx, label.String("foo2", "foo1"), label.String("bar1", "bar3"))
-		span.AddEvent(ctx, "testEvent", label.String("New", "attr"))
-		span.SetStatus(2, "setting span status")
-		defer span.End()
-
-		json.NewEncoder(w).Encode(n)
-	}
-
-	http.HandleFunc("/fib", fib)
+	http.HandleFunc("/fib", helloHandler)
 	http.ListenAndServe(":5050", nil)
+}
+
+func helloHandler(w http.ResponseWriter, req *http.Request) {
+	tracer := trace.GlobalTracer()
+
+	// Extracts the conventional HTTP span attributes,
+	// distributed context tags, and a span context for
+	// tracing this request.
+	attrs, tags, spanCtx := httptrace.Extract(req.Context(), req)
+
+	// Apply the distributed context tags to the request
+	// context.
+	req = req.WithContext(tag.WithMap(req.Context(), tag.NewMap(tag.MapUpdate{
+		MultiKV: tags,
+	})))
+
+	// Start the server-side span, passing the remote
+	// child span context explicitly.
+	_, span := tracer.Start(
+		req.Context(),
+		"hello",
+		trace.WithAttributes(attrs...),
+		trace.ChildOf(spanCtx),
+	)
+	defer span.End()
+
+	_, _ = io.WriteString(w, "Hello, world!\n")
 }

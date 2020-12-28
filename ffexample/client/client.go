@@ -11,16 +11,16 @@ import (
 	otelhttptrace "go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/trace"
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/label"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var logger = log.New(os.Stderr, "fluent-test", log.Ldate|log.Ltime|log.Llongfile)
 
 func main() {
-	tr := global.Tracer("ffexample/client")
-	ctx := otel.ContextWithBaggageValues(context.Background(),
+	tr := otel.Tracer("ffexample/client")
+	ctx := baggage.ContextWithValues(context.Background(),
 		label.String("foo", "bar"))
 	ctx, span := tr.Start(ctx, "fib")
 	defer span.End()
@@ -40,7 +40,7 @@ func test1(ctx context.Context, tr trace.Tracer) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	check(err)
 	_, req = otelhttptrace.W3C(ctx, req)
-	fmt.Println("Sending request: ")
+	fmt.Println("Sending request")
 	res, err := client.Do(req)
 	check(err)
 	defer res.Body.Close()
