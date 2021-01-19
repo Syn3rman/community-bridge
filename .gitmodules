@@ -1,0 +1,3 @@
+[submodule "fluentforwardextreceiver"]
+	path = fluentforwardextreceiver
+	url = https://github.com/Syn3rman/fluentforwardextreceiver.git

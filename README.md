@@ -1,1 +1,1 @@
-Progress tracker for work done as part of the q3-q4 cycle of Community Bridge under @open-telemetry
+Work done as part of the q3-q4 iteration of the [LFX mentorship program](https://lfx.linuxfoundation.org/tools/mentorship/).

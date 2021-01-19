@@ -2,20 +2,20 @@ package main
 
 import (
 	"fmt"
-	"time"
 	"net"
+	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-type test struct{
-	_msgpack struct{}       `msgpack:",asArray"`
-	Name string             `msgpack:"name"`
-	Ts int64                `msgpack:"ts"`
-	Attrs map[string]string `msgpack:"attrs"`
+type test struct {
+	_msgpack struct{}          `msgpack:",asArray"`
+	Name     string            `msgpack:"name"`
+	Ts       int64             `msgpack:"ts"`
+	Attrs    map[string]string `msgpack:"attrs"`
 }
 
-func main(){
+func main() {
 	testkv := make(map[string]string)
 	testkv["foo"] = "bar"
 	t, err := msgpack.Marshal(&test{Name: "foo", Ts: time.Now().UnixNano(), Attrs: testkv})
@@ -25,10 +25,6 @@ func main(){
 	fmt.Println(time.Now().UnixNano())
 
 	url := "localhost:24224"
-	// tcpAddr, err := net.ResolveTCPAddr("tcp", url)
-	// check(err)
-	// conn, err := net.DialTCP("tcp", nil, tcpAddr)
-	// check(err)
 
 	udpconn, _ := net.Dial("udp", url)
 	data, _ := msgpack.Marshal([]byte{0x00})
@@ -36,14 +32,10 @@ func main(){
 	res, err := udpconn.Write(data)
 	check(err)
 	fmt.Println(res)
-
-	// res, err := conn.Write(data)
-	// check(err)
-	// fmt.Println(res)
 }
 
-func check(err error){
-	if err!=nil{
+func check(err error) {
+	if err != nil {
 		fmt.Println(err)
 	}
 }
